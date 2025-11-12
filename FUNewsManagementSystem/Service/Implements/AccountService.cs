@@ -1,0 +1,283 @@
+﻿using Microsoft.Extensions.Configuration;
+using Repository.Interfaces;
+using Service.Interfaces;
+using Model.DTOs;
+using Model.Entities;
+
+namespace Service.Implements
+{
+    public class AccountService : IAccountService
+    {
+        private readonly IUnitOfWork uow;
+        private readonly IConfiguration _configuration;
+        public AccountService(IUnitOfWork unitOfWork, IConfiguration configuration)
+        {
+            uow = unitOfWork;
+            _configuration = configuration;
+        }
+        #region authentication
+        public async Task<APIResponse<SystemAccount>> GetAccountByEmailAsync(string email, string password)
+        {
+            // Kiểm tra admin account từ appsettings.json
+            var adminEmail = _configuration["AdminAccount:Email"];
+            var adminPassword = _configuration["AdminAccount:Password"];
+            var adminName = _configuration["AdminAccount:Name"];
+            var adminRole = int.Parse(_configuration["AdminAccount:Role"] ?? "0");
+
+            if (email == adminEmail && password == adminPassword)
+            {
+                // Trả về admin account
+                var adminAccount = new SystemAccount
+                {
+                    AccountId = 0,
+                    AccountName = adminName,
+                    AccountEmail = adminEmail,
+                    AccountRole = adminRole,
+                };
+                return APIResponse<SystemAccount>.Ok(adminAccount, "Admin account found", "200");
+            }
+
+            var account = await uow.AccountRepo.GetAccountByEmailAsync(email, password);
+            if (account == null)
+            {
+                return APIResponse<SystemAccount>.Fail("Account not found", "404");
+                
+            }
+            return APIResponse<SystemAccount>.Ok(account, "Account found", "200");
+        }
+
+        public async Task<APIResponse<ProfileResponse>> GetAccountByIdAsync(int accountId)
+        {
+            // Kiểm tra nếu là admin account từ config
+            if (accountId == 0)
+            {
+                var adminEmail = _configuration["AdminAccount:Email"];
+                var adminName = _configuration["AdminAccount:Name"];
+                var adminRole = int.Parse(_configuration["AdminAccount:Role"] ?? "0");
+
+                var adminProfile = new ProfileResponse
+                {
+                    AccountId = 0,
+                    AccountName = adminName ?? "Admin",
+                    AccountEmail = adminEmail ?? "admin@fpt.edu.vn",
+                    AccountRole = adminRole
+                };
+                return APIResponse<ProfileResponse>.Ok(adminProfile, "Admin profile found", "200");
+            }
+
+            var account = await uow.AccountRepo.GetByIdAsync(accountId);
+            if (account == null)
+            {
+                return APIResponse<ProfileResponse>.Fail("Account not found", "404");
+            }
+            ProfileResponse profile = new ProfileResponse
+            {
+                AccountId = account.AccountId,
+                AccountName = account.AccountName,
+                AccountEmail = account.AccountEmail,
+                AccountRole = account.AccountRole
+            };
+            return APIResponse<ProfileResponse>.Ok(profile, "Account found", "200");
+        }
+        #endregion
+
+        #region Account Management
+        // CRUD Operations
+        public async Task<APIResponse<List<AccountResponse>>> GetAllAccountsAsync()
+        {
+            try
+            {
+                var allAccounts = await uow.AccountRepo.GetAllAsync();
+                var accountResponses = new List<AccountResponse>();
+
+                foreach (var account in allAccounts)
+                {
+                    var newsCount = await uow.NewsArticleRepo.CountNewsByCreatorIdAsync(account.AccountId);
+                    accountResponses.Add(new AccountResponse
+                    {
+                        AccountId = account.AccountId,
+                        AccountName = account.AccountName,
+                        AccountEmail = account.AccountEmail,
+                        AccountRole = account.AccountRole,
+                        NewsCount = newsCount
+                    });
+                }
+
+                return APIResponse<List<AccountResponse>>.Ok(accountResponses, "Accounts retrieved successfully", "200");
+            }
+            catch (Exception ex)
+            {
+                return APIResponse<List<AccountResponse>>.Fail($"Error retrieving accounts: {ex.Message}", "500");
+            }
+        }
+
+        public async Task<APIResponse<AccountResponse>> GetAccountDetailAsync(int accountId)
+        {
+            try
+            {
+                var account = await uow.AccountRepo.GetByIdAsync(accountId);
+                if (account == null)
+                {
+                    return APIResponse<AccountResponse>.Fail("Account not found", "404");
+                }
+
+                var accountResponse = new AccountResponse
+                {
+                    AccountId = account.AccountId,
+                    AccountName = account.AccountName,
+                    AccountEmail = account.AccountEmail,
+                    AccountRole = account.AccountRole
+                };
+
+                return APIResponse<AccountResponse>.Ok(accountResponse, "Account retrieved successfully", "200");
+            }
+            catch (Exception ex)
+            {
+                return APIResponse<AccountResponse>.Fail($"Error retrieving account: {ex.Message}", "500");
+            }
+        }
+
+        public async Task<APIResponse<AccountResponse>> CreateAccountAsync(CreateAccountRequest request)
+        {
+            try
+            {
+                // Kiểm tra email đã tồn tại
+                var existingAccounts = await uow.AccountRepo.GetAllAsync();
+                if (existingAccounts.Any(a => a.AccountEmail == request.AccountEmail))
+                {
+                    return APIResponse<AccountResponse>.Fail("Email already exists", "400");
+                }
+
+                var newAccount = new SystemAccount
+                {
+                    AccountName = request.AccountName,
+                    AccountEmail = request.AccountEmail,
+                    AccountPassword = request.AccountPassword,
+                    AccountRole = request.AccountRole
+                };
+
+                await uow.AccountRepo.CreateAsync(newAccount);
+
+                var accountResponse = new AccountResponse
+                {
+                    AccountId = newAccount.AccountId,
+                    AccountName = newAccount.AccountName,
+                    AccountEmail = newAccount.AccountEmail,
+                    AccountRole = newAccount.AccountRole
+                };
+
+                return APIResponse<AccountResponse>.Ok(accountResponse, "Account created successfully", "201");
+            }
+            catch (Exception ex)
+            {
+                return APIResponse<AccountResponse>.Fail($"Error creating account: {ex.Message}", "500");
+            }
+        }
+
+        public async Task<APIResponse<AccountResponse>> UpdateAccountAsync(int accountId, UpdateAccountRequest request)
+        {
+            try
+            {
+                var account = await uow.AccountRepo.GetByIdAsync(accountId);
+                if (account == null)
+                {
+                    return APIResponse<AccountResponse>.Fail("Account not found", "404");
+                }
+
+                // Kiểm tra email mới đã tồn tại (trừ account hiện tại)
+                var existingAccounts = await uow.AccountRepo.GetAllAsync();
+                if (existingAccounts.Any(a => a.AccountEmail == request.AccountEmail && a.AccountId != accountId))
+                {
+                    return APIResponse<AccountResponse>.Fail("Email already exists", "400");
+                }
+
+                account.AccountName = request.AccountName;
+                account.AccountEmail = request.AccountEmail;
+                account.AccountRole = request.AccountRole;
+                
+                // Update password if provided
+                if (!string.IsNullOrEmpty(request.AccountPassword))
+                {
+                    account.AccountPassword = request.AccountPassword;
+                }
+
+                await uow.AccountRepo.UpdateAsync(account);
+
+                var accountResponse = new AccountResponse
+                {
+                    AccountId = account.AccountId,
+                    AccountName = account.AccountName,
+                    AccountEmail = account.AccountEmail,
+                    AccountRole = account.AccountRole
+                };
+
+                return APIResponse<AccountResponse>.Ok(accountResponse, "Account updated successfully", "200");
+            }
+            catch (Exception ex)
+            {
+                return APIResponse<AccountResponse>.Fail($"Error updating account: {ex.Message}", "500");
+            }
+        }
+
+        public async Task<APIResponse<string>> ChangePasswordAsync(int accountId, ChangePasswordRequest request)
+        {
+            try
+            {
+                var account = await uow.AccountRepo.GetByIdAsync(accountId);
+                if (account == null)
+                {
+                    return APIResponse<string>.Fail("Account not found", "404");
+                }
+
+                // Kiểm tra old password
+                if (account.AccountPassword != request.OldPassword)
+                {
+                    return APIResponse<string>.Fail("Old password is incorrect", "400");
+                }
+
+                // Cập nhật password mới
+                account.AccountPassword = request.NewPassword;
+                await uow.AccountRepo.UpdateAsync(account);
+
+                return APIResponse<string>.Ok("Password changed successfully", "Password changed successfully", "200");
+            }
+            catch (Exception ex)
+            {
+                return APIResponse<string>.Fail($"Error changing password: {ex.Message}", "500");
+            }
+        }
+
+        public async Task<APIResponse<string>> DeleteAccountAsync(int accountId)
+        {
+            try
+            {
+                var account = await uow.AccountRepo.GetByIdAsync(accountId);
+                if (account == null)
+                {
+                    return APIResponse<string>.Fail("Account not found", "404");
+                }
+
+                // Kiểm tra xem account có tạo bất kỳ news article nào không
+                var newsCount = await uow.NewsArticleRepo.CountNewsByCreatorIdAsync(accountId);
+                if (newsCount > 0)
+                {
+                    return APIResponse<string>.Fail($"Cannot delete account. This account has created {newsCount} news article(s)", "400");
+                }
+
+                // Nếu không có news article nào, tiến hành xóa
+                var result = await uow.AccountRepo.RemoveAsync(account);
+                if (!result)
+                {
+                    return APIResponse<string>.Fail("Failed to delete account", "500");
+                }
+
+                return APIResponse<string>.Ok("Account deleted successfully", "Account deleted successfully", "200");
+            }
+            catch (Exception ex)
+            {
+                return APIResponse<string>.Fail($"Error deleting account: {ex.Message}", "500");
+            }
+        }
+        #endregion
+    }
+}

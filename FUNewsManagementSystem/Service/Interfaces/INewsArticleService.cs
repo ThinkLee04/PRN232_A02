@@ -1,0 +1,22 @@
+using Model.DTOs;
+
+namespace Service.Interfaces
+{
+    public interface INewsArticleService
+    {
+        Task<APIResponse<List<NewsArticleResponse>>> GetAllNewsArticlesAsync(bool activeOnly = true);
+        Task<APIResponse<List<NewsArticleResponse>>> SearchNewsArticlesAsync(string searchTerm);
+        Task<APIResponse<List<NewsArticleResponse>>> GetNewsByAccountIdAsync(int accountId, bool activeOnly = true);
+        Task<APIResponse<NewsArticleResponse>> GetNewsArticleDetailAsync(int newsArticleId);
+        Task<APIResponse<NewsArticleResponse>> CreateNewsArticleAsync(int createdById, CreateNewsArticleRequest request);
+        Task<APIResponse<NewsArticleResponse>> UpdateNewsArticleAsync(int newsArticleId, int updatedById, UpdateNewsArticleRequest request);
+        Task<APIResponse<string>> DeleteNewsArticleAsync(int newsArticleId, int accountId);
+        
+        // Statistics APIs
+        Task<APIResponse<NewsStatisticsResponse>> GetNewsStatisticsAsync(DateTime startDate, DateTime endDate);
+        
+        // Optimized statistics APIs - split for performance
+        Task<APIResponse<StatisticsSummary>> GetStatisticsSummaryAsync(DateTime startDate, DateTime endDate);
+        Task<APIResponse<List<DailyStatistics>>> GetDailyBreakdownAsync(DateTime startDate, DateTime endDate);
+    }
+}
