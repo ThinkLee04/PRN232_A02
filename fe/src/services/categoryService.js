@@ -1,8 +1,10 @@
 import axiosInstance from '../utils/axios';
 
 export const categoryService = {
-  getAllCategories: async () => {
-    const response = await axiosInstance.get('/categories');
+  getAllCategories: async (activeOnly = true) => {
+    const response = await axiosInstance.get('/categories', {
+      params: { activeOnly },
+    });
     return response.data;
   },
 

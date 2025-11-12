@@ -19,11 +19,11 @@ namespace FUNewsManagementSystem.Controllers
 
         [AllowAnonymous]
         [HttpGet]
-        public async Task<ActionResult<APIResponse<List<CategoryResponse>>>> GetAllCategories()
+        public async Task<ActionResult<APIResponse<List<CategoryResponse>>>> GetAllCategories([FromQuery] bool activeOnly = true)
         {
             try
             {
-                var result = await _categoryService.GetAllCategoriesAsync();
+                var result = await _categoryService.GetAllCategoriesAsync(activeOnly);
                 return Ok(result);
             }
             catch (Exception ex)

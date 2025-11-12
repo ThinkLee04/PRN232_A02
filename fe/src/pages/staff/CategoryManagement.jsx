@@ -32,7 +32,7 @@ const CategoryManagement = () => {
 
   const fetchCategories = async () => {
     try {
-      const response = await categoryService.getAllCategories();
+      const response = await categoryService.getAllCategories(false); // activeOnly=false: lấy tất cả
       setCategories(response.data);
       setFilteredCategories(response.data);
     } catch (error) {
@@ -255,7 +255,7 @@ const CategoryManagement = () => {
             >
               <option value="">None</option>
               {categories
-                .filter((cat) => cat.categoryId !== selectedCategory?.categoryId)
+                .filter((cat) => cat.categoryId !== selectedCategory?.categoryId && cat.isActive)
                 .map((category) => (
                   <option key={category.categoryId} value={category.categoryId}>
                     {category.categoryName}

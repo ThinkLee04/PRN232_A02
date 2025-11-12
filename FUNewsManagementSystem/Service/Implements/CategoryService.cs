@@ -14,13 +14,25 @@ namespace Service.Implements
             _uow = unitOfWork;
         }
 
-        public async Task<APIResponse<List<CategoryResponse>>> GetAllCategoriesAsync()
+        public async Task<APIResponse<List<CategoryResponse>>> GetAllCategoriesAsync(bool activeOnly = true)
         {
             try
             {
                 var allCategories = await _uow.CategoryRepo.GetAllWithParentAsync();
-                // Chỉ lấy các category còn active
-                var categories = allCategories.Where(c => c.IsActive).ToList();
+                
+                // Filter theo activeOnly
+                IEnumerable<Category> categories;
+                if (activeOnly)
+                {
+                    // Chỉ lấy categories active và có parent active (hoặc không có parent)
+                    categories = allCategories.Where(c => c.IsActive && (c.ParentCategory == null || c.ParentCategory.IsActive));
+                }
+                else
+                {
+                    // Lấy tất cả (cả active và inactive)
+                    categories = allCategories;
+                }
+                    
                 var categoryResponses = categories.Select(c => new CategoryResponse
                 {
                     CategoryId = c.CategoryId,
@@ -171,16 +183,43 @@ namespace Service.Implements
                     return APIResponse<string>.Fail("Category not found", "404");
                 }
 
-                // Soft delete: chuyển IsActive thành false
+                // Danh sách các categoryId cần inactive (bao gồm cả category cha và con)
+                var categoryIdsToInactive = new List<int> { categoryId };
+
+                // Soft delete category cha
                 category.IsActive = false;
-                var result = await _uow.CategoryRepo.UpdateAsync(category);
+                await _uow.CategoryRepo.UpdateAsync(category);
+
+                // Lấy tất cả categories để tìm category con
+                var allCategories = await _uow.CategoryRepo.GetAllAsync();
                 
-                if (result <= 0)
+                // Tìm tất cả category con (ParentCategoryId = categoryId)
+                var childCategories = allCategories.Where(c => c.ParentCategoryId == categoryId && c.IsActive).ToList();
+                
+                // Inactive tất cả category con và collect IDs
+                foreach (var child in childCategories)
                 {
-                    return APIResponse<string>.Fail("Failed to delete category", "500");
+                    child.IsActive = false;
+                    await _uow.CategoryRepo.UpdateAsync(child);
+                    categoryIdsToInactive.Add(child.CategoryId);
                 }
 
-                return APIResponse<string>.Ok("Category deleted successfully", "Category deleted successfully", "200");
+                // Lấy tất cả news thuộc các categories bị inactive
+                var allNews = await _uow.NewsArticleRepo.GetAllNewsArticlesWithDetailsAsync();
+                var newsToInactive = allNews.Where(n => categoryIdsToInactive.Contains(n.CategoryId) && n.NewsStatus == 1).ToList();
+
+                // Inactive tất cả news liên quan
+                foreach (var news in newsToInactive)
+                {
+                    news.NewsStatus = 0; // Set to Inactive
+                    await _uow.NewsArticleRepo.UpdateAsync(news);
+                }
+
+                var message = childCategories.Any() || newsToInactive.Any()
+                    ? $"Category deleted with {childCategories.Count} child category(ies) and {newsToInactive.Count} news article(s) inactivated"
+                    : "Category deleted successfully";
+
+                return APIResponse<string>.Ok(message, message, "200");
             }
             catch (Exception ex)
             {
